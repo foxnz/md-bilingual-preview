@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Build output
+*.vsix
+
+# Local caches
+.cache/
+
+# Editor / OS
+.vscode/
+.DS_Store

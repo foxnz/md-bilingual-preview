@@ -1,0 +1,182 @@
+{
+  "name": "md-bilingual-preview",
+  "displayName": "Markdown 双语预览",
+  "description": "把 Markdown 原文和 AI 译文左右并排显示，只读预览，永不写回文件",
+  "version": "0.3.0",
+  "publisher": "foxnz",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./src/extension.js",
+  "type": "commonjs",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "mdBilingual.openPreview",
+        "title": "Markdown 双语预览：打开",
+        "category": "Markdown 双语预览",
+        "icon": "$(book)"
+      },
+      {
+        "command": "mdBilingual.refresh",
+        "title": "Markdown 双语预览：重新翻译（清缓存）",
+        "category": "Markdown 双语预览"
+      },
+      {
+        "command": "mdBilingual.setApiKey",
+        "title": "Markdown 双语预览：设置 API Key",
+        "category": "Markdown 双语预览"
+      },
+      {
+        "command": "mdBilingual.clearApiKey",
+        "title": "Markdown 双语预览：清除 API Key",
+        "category": "Markdown 双语预览"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "mdBilingual.openPreview",
+          "when": "resourceExtname == .md || resourceExtname == .markdown",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "mdBilingual.openPreview",
+          "when": "resourceExtname == .md || resourceExtname == .markdown",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Markdown 双语预览",
+      "properties": {
+        "mdBilingual.apiBaseUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "OpenAI 兼容接口的 base URL，例如 `https://api.example.com/v1`。留空则沿用 `#mdTranslator.apiBaseUrl#` 的值。"
+        },
+        "mdBilingual.model": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "翻译使用的模型。留空则沿用 `#mdTranslator.model#` 的值。"
+        },
+        "mdBilingual.targetLanguage": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "目标语言，例如 `Simplified Chinese`、`English`。留空则沿用 `#mdTranslator.targetLanguage#` 的值。"
+        },
+        "mdBilingual.temperature": {
+          "type": "number",
+          "default": 1,
+          "description": "采样温度。部分推理模型只接受 1。"
+        },
+        "mdBilingual.maxSegmentsPerBatch": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 200,
+          "description": "每批最多发送多少个段落。调小更慢，但能降低模型弄错段落 id 的概率。"
+        },
+        "mdBilingual.maxCharsPerBatch": {
+          "type": "number",
+          "default": 6000,
+          "minimum": 500,
+          "maximum": 100000,
+          "description": "每批最多发送多少个字符。"
+        },
+        "mdBilingual.maxResponseTokens": {
+          "type": "number",
+          "default": 16000,
+          "minimum": 256,
+          "description": "每次请求允许的最大响应 token 数。"
+        },
+        "mdBilingual.requestTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "minimum": 1000,
+          "description": "单次请求超时（毫秒）。"
+        },
+        "mdBilingual.concurrency": {
+          "type": "number",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "并发请求数。默认 1，即一批接一批地串行请求——对配额紧张的网关最友好。确认服务端扛得住再往上调。"
+        },
+        "mdBilingual.maxRetries": {
+          "type": "number",
+          "default": 4,
+          "minimum": 0,
+          "maximum": 10,
+          "description": "遇到 429 限流或 5xx 时的最大重试次数。采用指数退避，服务端返回 Retry-After 时以它为准。"
+        },
+        "mdBilingual.retryBaseMs": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 100,
+          "description": "退避基数（毫秒）。第 n 次重试等待约 base × 2ⁿ，并加随机抖动。"
+        },
+        "mdBilingual.retryMaxDelayMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 1000,
+          "description": "单次重试的最长等待（毫秒），防止指数退避无限拉长。"
+        },
+        "mdBilingual.reasoningEffort": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "none",
+            "low",
+            "medium",
+            "high",
+            "off"
+          ],
+          "enumDescriptions": [
+            "模型名像推理模型时自动发送 none，否则不发",
+            "发送 reasoning_effort=none",
+            "发送 reasoning_effort=low",
+            "发送 reasoning_effort=medium",
+            "发送 reasoning_effort=high",
+            "完全不发送该参数"
+          ],
+          "description": "控制推理强度。翻译任务不需要思考，关掉更快更省。若服务端因该参数返回 400，会自动去掉它重试一次。"
+        },
+        "mdBilingual.useJsonResponseFormat": {
+          "type": "boolean",
+          "default": false,
+          "description": "向支持 OpenAI JSON mode 的服务发送 response_format={\"type\":\"json_object\"}。"
+        },
+        "mdBilingual.layout": {
+          "type": "string",
+          "default": "side-by-side",
+          "enum": [
+            "side-by-side",
+            "stacked"
+          ],
+          "enumDescriptions": [
+            "左右并排：左原文，右译文",
+            "上下堆叠：适合窄面板"
+          ],
+          "description": "布局方式。"
+        },
+        "mdBilingual.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "源文件改动时自动重新翻译改动的段落（未改动的段落走缓存，不重复请求）。"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "marked": "^14.1.4"
+  }
+}
