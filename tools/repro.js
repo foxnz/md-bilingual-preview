@@ -151,7 +151,12 @@ async function run(name, purpose, opts, blocks) {
     console.log('  插件这边没有可改的东西，只能等冷却。用 --poll 盯着。');
   } else if (results.A === false && results.D === true) {
     console.log('  最小请求绿、真实请求红 → 跟请求形状有关，插件这边可以改。');
-    if (results.B) console.log('  变体 B 绿 → 是 max_tokens 太大占配额，调小 mdBilingual.maxResponseTokens。');
+    if (results.B) {
+      console.log('  变体 B 绿 → 小的 max_tokens 能过，说明网关按预留额度算配额。');
+      console.log('  但别直接把 maxResponseTokens 压到 1024 了事：额度不够译文会被截断，');
+      console.log('  换来的是一个更难看懂的失败。要压就连 maxCharsPerBatch 一起压，');
+      console.log('  保持 maxResponseTokens ≳ maxCharsPerBatch × 0.8。');
+    }
     if (results.C) console.log('  变体 C 绿 → 是 reasoning_effort 参数的问题，设 mdBilingual.reasoningEffort=off。');
   } else if (results.A === true) {
     console.log('  变体 A 绿 → 当前配额可用，bug 此刻不复现。');

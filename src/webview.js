@@ -58,6 +58,14 @@ body {
   white-space: pre-wrap;
 }
 #err.show { display: block; }
+/* 警告和报错分开：警告是「这么配跑不出好结果」，报错是「这次真的失败了」 */
+#warn {
+  display: none; margin: 12px 16px; padding: 10px 14px; border-radius: 4px;
+  background: var(--vscode-inputValidation-warningBackground, rgba(255,180,0,.12));
+  border: 1px solid var(--vscode-inputValidation-warningBorder, goldenrod);
+  white-space: pre-wrap;
+}
+#warn.show { display: block; }
 #doc { padding: 4px 16px 64px; }
 
 .row { display: grid; gap: 0 32px; align-items: start; border-bottom: 1px solid transparent; }
@@ -116,6 +124,11 @@ window.addEventListener('message', (event) => {
     const box = document.getElementById('err');
     box.textContent = msg.message;
     box.classList.add('show');
+  } else if (msg.type === 'warning') {
+    // 空字符串 = 这次没问题，把上一次的警告收起来
+    const box = document.getElementById('warn');
+    box.textContent = msg.message || '';
+    box.classList.toggle('show', !!msg.message);
   } else if (msg.type === 'clearError') {
     document.getElementById('err').classList.remove('show');
   } else if (msg.type === 'layout') {
@@ -162,6 +175,7 @@ function buildHtml({ cspSource, title, blocks, layout, targetLanguage }) {
   <button id="toggle">切换布局</button>
   <button id="refresh">重新翻译</button>
 </div>
+<div id="warn"></div>
 <div id="err"></div>
 <div id="doc">
 ${rows}

@@ -3,7 +3,7 @@
 const vscode = require('vscode');
 const path = require('path');
 const { segment, batch } = require('./segment');
-const { translateBatch, TranslateError } = require('./translate');
+const { translateBatch, TranslateError, budgetWarning } = require('./translate');
 const { buildHtml, renderMarkdown } = require('./webview');
 
 const SECRET_KEY = 'mdBilingual.apiKey';
@@ -155,6 +155,10 @@ async function translateSession(session, context, { force = false } = {}) {
 
   panel.webview.postMessage({ type: 'clearError' });
 
+  // 额度配不平是必然失败，不用等它跑完再解释
+  const warning = budgetWarning(cfg);
+  panel.webview.postMessage({ type: 'warning', message: warning || '' });
+
   // 先吃缓存，只把没命中的送去翻译
   const todo = [];
   let cached = 0;
@@ -203,7 +207,7 @@ async function translateSession(session, context, { force = false } = {}) {
     if (!alive()) return;
     const payload = group.map(b => ({ id: `s${b.index}`, kind: b.kind, text: b.text }));
     try {
-      const { translations, missing } = await translateBatch({ ...opts, onRetry }, payload);
+      const { translations, missing, truncated } = await translateBatch({ ...opts, onRetry }, payload);
       retrying = '';
       if (!alive()) return;
       for (const block of group) {
@@ -216,7 +220,13 @@ async function translateSession(session, context, { force = false } = {}) {
           panel.webview.postMessage({ type: 'failed', index: block.index, text: '（这一段没返回译文）' });
         }
       }
-      if (missing.length) firstError = firstError || `有 ${missing.length} 段没拿到译文。`;
+      // 截断是有具体解法的失败，别和「模型漏了几段」混为一谈
+      if (missing.length) {
+        firstError = firstError || (truncated
+          ? `有 ${missing.length} 段没拿到译文：响应被 max_tokens 截断了，截断之前的已经抢救出来。\n` +
+            `调大 mdBilingual.maxResponseTokens（不低于 maxCharsPerBatch × 0.8），或调小 mdBilingual.maxCharsPerBatch。`
+          : `有 ${missing.length} 段没拿到译文。`);
+      }
     } catch (error) {
       if (!alive()) return;
       failedBlocks += group.length;
