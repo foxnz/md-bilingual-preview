@@ -28,7 +28,7 @@
 ```bash
 npm install
 npx @vscode/vsce package
-code --install-extension md-bilingual-preview-0.4.0.vsix
+code --install-extension md-bilingual-preview-0.5.0.vsix
 ```
 
 装完要 `Developer: Reload Window`。
@@ -53,8 +53,8 @@ code --install-extension md-bilingual-preview-0.4.0.vsix
 
 | 配置项 | 默认 | 说明 |
 |---|---|---|
-| `mdBilingual.apiBaseUrl` | 空 → 回落 | OpenAI 兼容接口，如 `https://api.example.com/v1` |
-| `mdBilingual.model` | 空 → 回落 | 模型名。`gpt-*` 和 `claude-*` 都行，见下节 |
+| `mdBilingual.apiBaseUrl` | 空 → 回落 | OpenAI 兼容接口。DeepSeek 填 `https://api.deepseek.com`（无 `/v1`），中转站一般是 `https://域名/v1` |
+| `mdBilingual.model` | 空 → 回落 | 模型名。`deepseek-*`、`gpt-*`、`claude-*` 都行，见下节 |
 | `mdBilingual.targetLanguage` | 空 → 回落 | 目标语言，如 `Simplified Chinese` |
 | `mdBilingual.layout` | `side-by-side` | 并排或上下堆叠 |
 | `mdBilingual.maxSegmentsPerBatch` | 20 | 每批段落数，调小可降低模型弄错 id 的概率 |
@@ -63,23 +63,47 @@ code --install-extension md-bilingual-preview-0.4.0.vsix
 | `mdBilingual.maxRetries` | 4 | 429/5xx 的最大重试次数 |
 | `mdBilingual.retryBaseMs` | 2000 | 退避基数，第 n 次重试等约 `base × 2ⁿ` |
 | `mdBilingual.retryMaxDelayMs` | 30000 | 单次重试的最长等待 |
-| `mdBilingual.reasoningEffort` | `auto` | 翻译不需要思考；`auto` 对 gpt 推理模型发 `none`，对 `claude-*` 发 `low` |
+| `mdBilingual.reasoningEffort` | `auto` | 翻译不需要思考；`auto` 对 gpt 推理模型发 `none`、对 `claude-*` 发 `low`、对 `deepseek-*` 关闭思考 |
 | `mdBilingual.requestTimeoutMs` | 120000 | 单次请求超时 |
 | `mdBilingual.autoRefresh` | `true` | 源文件改动时自动重译改动的段落 |
 
-## 用 OpenAI 还是 Claude
+## 接 DeepSeek
 
-一个中转站后面往往同时挂着两家的账号：`gpt-*` 转发到 OpenAI，`claude-*` 转发到 Anthropic。**切换只需要改 `mdBilingual.model` 一个值**——base URL 和 API Key 都不用动，接口仍然是同一个 `/chat/completions`。
+DeepSeek 官方接口就是 OpenAI 格式，直连即可，不需要中转站：
 
-不用动的原因是插件按模型名自动适配请求参数：
+```jsonc
+"mdBilingual.apiBaseUrl": "https://api.deepseek.com",   // 注意：没有 /v1
+"mdBilingual.model": "deepseek-flash",                  // 或 deepseek-v4-pro
+"mdBilingual.targetLanguage": "Simplified Chinese"
+```
 
-| 参数 | `gpt-*` | `claude-*` | 为什么 |
+API Key 用命令 **Markdown 双语预览：设置 API Key** 单独设，不写进 settings.json。
+
+两个容易踩的点，插件已经替你处理了：
+
+**1. base URL 没有 `/v1`。** 插件会在你填的 base URL 后面接 `/chat/completions`，所以填 `https://api.deepseek.com` 正好拼成官方文档里的 `https://api.deepseek.com/chat/completions`。习惯性补个 `/v1` 反而可能 404。
+
+**2. DeepSeek 的思考默认是开的，而且默认 `high`。** 这点和别家正好相反——gpt/claude 那边「不发思考参数 = 不思考」，DeepSeek 这边「不发 = 全力思考」。翻译任务要思维链没有意义，只是让每一段都慢几倍、贵几倍。而且它的开关**不是** `reasoning_effort`（那个只管强度，关不掉），是 body 级的 `{"thinking":{"type":"disabled"}}`。默认的 `reasoningEffort: auto` 会替你显式关掉。
+
+> ⚠️ 正因为如此，`mdBilingual.reasoningEffort` 设成 `off` 在 DeepSeek 上是**反效果**：`off` 的字面意思是「什么参数都不发」，而在 DeepSeek 上这等于思考全开。想关思考就用 `auto` 或 `none`。
+
+模型和额度：`deepseek-flash` 上下文 1M、最大输出 384K，`maxResponseTokens` 怎么设都够用，不必像别家那样抠。
+
+## 三家模型的参数差异
+
+`mdBilingual.model` 是唯一要改的值——base URL 指向哪个网关、API Key 是哪把，都和模型选哪家无关（前提是那个网关同时挂着它们）。插件按模型名自动适配：
+
+| 参数 | `gpt-*` | `claude-*` | `deepseek-*` |
 |---|---|---|---|
-| `temperature` | 照常发 | **不发** | Anthropic 从 Claude 4.6 起移除了采样参数，发了直接 400，而 400 不重试，一发就是硬失败 |
-| `reasoning_effort` | `auto` → `none` | `auto` → `low` | Anthropic 最低一档是 `low`，没有 `none`。显式设成 `none` 也会折成 `low` |
-| `response_format` | 开了就发 | 开了就发 | 转发到 Anthropic 一般不支持，保持 `useJsonResponseFormat: false` 即可 |
+| `temperature` | 照常发 | **不发**（Anthropic 新模型收到直接 400） | 照常发（关掉思考后才生效） |
+| 思考开关 | `reasoning_effort: none` | `reasoning_effort: low`（最低一档，没有 `none`） | `thinking: {type:"disabled"}` ← 不是 `reasoning_effort` |
+| 默认是否思考 | 否 | 否 | **是，且 high** ← 必须显式关 |
+| `max_tokens` 参数名 | 新模型要 `max_completion_tokens` | `max_tokens` | `max_tokens` |
+| `response_format` | 开了就发 | 一般不支持，保持关闭 | 支持，但偶尔返回空 content |
 
-剩下的分歧不靠猜：**任何 400 都会按 `reasoning_effort` → `temperature` → `response_format` 的顺序逐个摘掉参数重试**，摘一个试一次，都不计入退避重试次数。所以换一个没见过的模型，最坏情况是多几次请求，不会整批失败。
+剩下的分歧不靠猜：**任何 400 都会按 `reasoning_effort` → `thinking` → `temperature` → `response_format` 的顺序逐个摘掉参数重试**，摘一个试一次，都不计入退避重试次数；服务端要是点名了 `max_completion_tokens`，则改名而不是摘掉。所以换一个没见过的模型，最坏情况是多几次请求，不会整批失败。
+
+（摘掉 `thinking` 的代价要知道：DeepSeek 上等于恢复成全力思考，译文照样出得来，只是更慢更贵。）
 
 此外 `max_tokens` 这个参数名本身也在分家：OpenAI 侧的新模型（gpt-5 系列、o 系列）只认 `max_completion_tokens`，收到旧名字直接 400。这一项不能像可选参数那样摘掉（摘了等于放弃长度控制），所以**服务端在 400 里点了名，插件就改名重发**，不点名不动——中转站两种名字都可能认，主动改反而可能踩另一边。
 
@@ -98,11 +122,13 @@ code --install-extension md-bilingual-preview-0.4.0.vsix
 
 用 `claude-*` 时额度还要再宽一些：**思考 token 和译文共用这个额度**。
 
-网关上有哪些模型可用，可以直接探：
+## 探一探能用哪些模型
 
 ```bash
 read -rs MDB_KEY && export MDB_KEY && node tools/probe.js
 ```
+
+`read -rs` 是静默读取，不回显也不给提示符，看着像卡住其实是在等你粘贴 key，粘完回车即可（key 不进 shell 历史）。默认探 `https://api.deepseek.com`，换网关用 `MDB_BASE=...`，指定模型用 `MDB_MODEL=...` 或直接跟在命令后面。
 
 它会列出你的 key 可见的模型并逐个发一次最小请求，告诉你哪些当前真的能用。
 
@@ -116,7 +142,7 @@ read -rs MDB_KEY && export MDB_KEY && node tools/probe.js
 - 分隔线、链接引用定义
 - 任何不含自然语言的块（表格分隔行、纯 URL、纯行内代码）
 
-**翻译** (`src/translate.js`)。按段数和字符数分批，并发请求 OpenAI 兼容接口，要求返回 `{"translations":[{"id","text"}]}`。请求体由 `buildRequestBody()` 按模型名挑参数构造，OpenAI 和 Anthropic 的差异都收在这一个函数里。
+**翻译** (`src/translate.js`)。按段数和字符数分批，并发请求 OpenAI 兼容接口，要求返回 `{"translations":[{"id","text"}]}`。请求体由 `buildRequestBody()` 按模型名挑参数构造，OpenAI / Anthropic / DeepSeek 的差异都收在这一个函数里。
 
 **渲染** (`src/webview.js`)。CSS Grid 每块一行，左原文右译文——逐段天然对齐，不需要滚动同步。不翻译的块通栏显示。原文立刻可读，译文按批次陆续填入。
 
@@ -140,7 +166,7 @@ grep -rE 'writeFile|WorkspaceEdit|applyEdit|\.edit\(|fs\.' src/
 |---|---|---|
 | **401** | key 无效或没带 | 重设 API Key。这才是「key 的问题」 |
 | **429** | 服务端限流 | **不是 key 的问题**——key 无效会返回 401。是网关侧暂时没配额 |
-| **400** | 请求参数不合法 | 插件会按 `reasoning_effort` → `temperature` → `response_format` 逐个摘掉重试。摘光了还 400，报错会指向模型名——多半是 `mdBilingual.model` 写错或网关没有这个模型 |
+| **400** | 请求参数不合法 | 插件会按 `reasoning_effort` → `thinking` → `temperature` → `response_format` 逐个摘掉重试（点名 `max_completion_tokens` 的则改名）。摘光了还 400，报错会指向模型名——多半是 `mdBilingual.model` 写错或网关没有这个模型 |
 | **5xx** | 服务端故障 | 自动重试 |
 | **200 但说「被 max_tokens 截断」** | 输出额度不够 | 调大 `mdBilingual.maxResponseTokens`，见上一节。断点前的译文已经抢救出来了，只补没写完的那几段 |
 
@@ -171,7 +197,7 @@ grep -rE 'writeFile|WorkspaceEdit|applyEdit|\.edit\(|fs\.' src/
 ## 自检
 
 ```bash
-node test/check.js                      # 60 项单元检查
+node test/check.js                      # 67 项单元检查
 node test/check.js path/to/some.md      # 再附加一份真实文档的分段统计
 ```
 

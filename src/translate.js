@@ -3,9 +3,10 @@
 /**
  * OpenAI 兼容接口的翻译客户端。
  *
- * 走的是同一个 /chat/completions，但中转站后面挂着不同厂商：gpt-* 转发到 OpenAI，
- * claude-* 转发到 Anthropic。两边认的可选参数不是一套（见 buildRequestBody），
- * 所以请求体按模型名挑着发，剩下的分歧靠 400 自动摘参数兜底。
+ * 走的是同一个 /chat/completions，但后面可能挂着不同厂商：gpt-* 转发到 OpenAI，
+ * claude-* 转发到 Anthropic，deepseek-* 走 DeepSeek 自己的 OpenAI 兼容端点。
+ * 三边认的可选参数不是一套（见 buildRequestBody），所以请求体按模型名挑着发，
+ * 剩下的分歧靠 400 自动摘参数兜底。
  *
  * 只读取内容、只发 HTTP 请求，不碰文件系统。
  */
@@ -44,12 +45,40 @@ function looksLikeAnthropicModel(model) {
   return /(^|[^a-z])claude([^a-z]|$)/i.test(model || '');
 }
 
+/** 模型是不是 DeepSeek 家的（deepseek-flash、deepseek-v4-pro 等）。 */
+function looksLikeDeepSeekModel(model) {
+  return /(^|[^a-z])deepseek([^a-z]|$)/i.test(model || '');
+}
+
+/**
+ * DeepSeek 的思考开关不在 reasoning_effort 上。
+ *
+ * 两处和别家相反，都会闷声烧钱：
+ * 1. 开关是 body 级的 {"thinking":{"type":"enabled"|"disabled"}}，reasoning_effort
+ *    只管强度，关不掉思考；
+ * 2. 思考默认就是**开**的，且 effort 默认 high。也就是说「什么都不发」在 DeepSeek 上
+ *    等于全力思考——gpt/claude 那边「不发 = 不想」的直觉在这里正好反过来。
+ *
+ * 翻译任务不需要思维链，所以 auto/none 一律显式关掉。
+ */
+function applyDeepSeekThinking(body, effort) {
+  if (effort === 'auto' || effort === 'none') {
+    body.thinking = { type: 'disabled' };
+    return true;
+  }
+  // 用户明确要思考：打开开关，强度原样交给服务端自己映射（medium→high 之类）
+  body.thinking = { type: 'enabled' };
+  body.reasoning_effort = effort;
+  return true;
+}
+
 /**
  * Claude 也是推理模型，只是档位不同：Anthropic 最低一档是 low，没有 none。
  * 发 none 会被判成非法值直接 400，所以这里统一折成 low——翻译任务本来也不需要想。
  */
 function applyReasoning(body, effort, model) {
   if (effort === 'off') return false;
+  if (looksLikeDeepSeekModel(model)) return applyDeepSeekThinking(body, effort);
   const anthropic = looksLikeAnthropicModel(model);
   let value = effort;
   if (effort === 'auto') {
@@ -340,10 +369,14 @@ async function postCompletion(opts, body) {
 
 /**
  * 400 时按这个顺序逐个摘掉再试。都是可选参数，去掉只影响成本和稳定性，不影响译文正确性。
- * 顺序按「最可能不被接受」排：reasoning_effort 各家档位不统一，temperature 被 Anthropic
- * 新模型整个移除了，response_format 只有部分网关支持。
+ * 顺序按「最可能不被接受」排：reasoning_effort 各家档位不统一，thinking 是 DeepSeek
+ * 独有的（别家网关见了会懵），temperature 被 Anthropic 新模型整个移除了，
+ * response_format 只有部分网关支持。
+ *
+ * 注意摘掉 thinking 的代价：DeepSeek 上思考默认是开的，摘了等于恢复成全力思考，
+ * 译文照样出得来，只是更慢更贵。所以排在 reasoning_effort 之后、temperature 之前。
  */
-const OPTIONAL_PARAMS = ['reasoning_effort', 'temperature', 'response_format'];
+const OPTIONAL_PARAMS = ['reasoning_effort', 'thinking', 'temperature', 'response_format'];
 
 function dropOptionalParam(body) {
   for (const key of OPTIONAL_PARAMS) {
@@ -509,6 +542,7 @@ module.exports = {
   extractJsonObject,
   looksLikeReasoningModel,
   looksLikeAnthropicModel,
+  looksLikeDeepSeekModel,
   applyReasoning,
   buildRequestBody,
   dropOptionalParam,

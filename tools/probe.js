@@ -12,7 +12,8 @@
  */
 
 const KEY = process.env.MDB_KEY;
-const BASE = (process.env.MDB_BASE || 'https://res-api.dev.agenticai.co.nz/v1').replace(/\/+$/, '');
+// DeepSeek 的 OpenAI 兼容端点没有 /v1 这一段，端点就是 https://api.deepseek.com/chat/completions
+const BASE = (process.env.MDB_BASE || 'https://api.deepseek.com').replace(/\/+$/, '');
 
 if (!KEY) {
   console.error('没读到 MDB_KEY。用法：\n  read -rs MDB_KEY && export MDB_KEY && node tools/probe.js\n');
@@ -65,15 +66,18 @@ async function listModels() {
 async function probe(model) {
   const started = Date.now();
   try {
+    const body = {
+      model,
+      max_tokens: 64,
+      stream: false,
+      messages: [{ role: 'user', content: 'Reply with the single word: ok' }],
+    };
+    // DeepSeek 默认开思考，不关掉的话这个「最小请求」会慢得没有参考价值
+    if (/(^|[^a-z])deepseek([^a-z]|$)/i.test(model)) body.thinking = { type: 'disabled' };
     const res = await fetch(`${BASE}/chat/completions`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        model,
-        max_tokens: 64,
-        stream: false,
-        messages: [{ role: 'user', content: 'Reply with the single word: ok' }],
-      }),
+      body: JSON.stringify(body),
     });
     const body = await res.text();
     const [label, note] = verdict(res.status, body);
@@ -93,11 +97,11 @@ async function probe(model) {
 
   // /models 拿不到时（分组不允许列举）用候选名单兜底，脚本仍然能给出结论。
   const FALLBACK = [
+    'deepseek-flash',
+    'deepseek-v4-pro',
     'gpt-5.3-codex-spark',
     'claude-sonnet-5',
-    'claude-haiku-4-5-20251001',
     'claude-opus-5',
-    'claude-sonnet-4-5-20250929',
   ];
 
   const targets = process.argv.slice(2);
@@ -107,7 +111,7 @@ async function probe(model) {
     toProbe = FALLBACK;
   }
   // 当前配的模型一定要在被测之列
-  const configured = 'gpt-5.3-codex-spark';
+  const configured = process.env.MDB_MODEL || 'deepseek-flash';
   if (!toProbe.includes(configured)) toProbe = [configured, ...toProbe];
 
   console.log('\n— 逐个实际发一次最小请求 —');

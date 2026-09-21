@@ -2,9 +2,17 @@
   "name": "md-bilingual-preview",
   "displayName": "Markdown 双语预览",
   "description": "把 Markdown 原文和 AI 译文左右并排显示，只读预览，永不写回文件",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "foxnz",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/foxnz/md-bilingual-preview.git"
+  },
+  "bugs": {
+    "url": "https://github.com/foxnz/md-bilingual-preview/issues"
+  },
+  "homepage": "https://github.com/foxnz/md-bilingual-preview#readme",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -60,12 +68,12 @@
         "mdBilingual.apiBaseUrl": {
           "type": "string",
           "default": "",
-          "markdownDescription": "OpenAI 兼容接口的 base URL，例如 `https://api.example.com/v1`。留空则沿用 `#mdTranslator.apiBaseUrl#` 的值。"
+          "markdownDescription": "OpenAI 兼容接口的 base URL，插件会在后面接 `/chat/completions`。DeepSeek 官方填 `https://api.deepseek.com`（**没有 `/v1`**），一般中转站填 `https://你的域名/v1`。留空则沿用 `#mdTranslator.apiBaseUrl#` 的值。"
         },
         "mdBilingual.model": {
           "type": "string",
           "default": "",
-          "markdownDescription": "翻译使用的模型，例如 `gpt-5.3-codex-spark` 或 `claude-sonnet-5`。同一个网关上两家都能用，请求参数会按模型名自动适配。留空则沿用 `#mdTranslator.model#` 的值。"
+          "markdownDescription": "翻译使用的模型，例如 `deepseek-flash`、`gpt-5.3-codex-spark` 或 `claude-sonnet-5`。请求参数会按模型名自动适配三家的差异。留空则沿用 `#mdTranslator.model#` 的值。"
         },
         "mdBilingual.targetLanguage": {
           "type": "string",
@@ -141,14 +149,14 @@
             "off"
           ],
           "enumDescriptions": [
-            "gpt 类推理模型发 none，claude-* 发 low，其余不发",
-            "发送 reasoning_effort=none（claude-* 会折成 low）",
-            "发送 reasoning_effort=low",
-            "发送 reasoning_effort=medium",
-            "发送 reasoning_effort=high",
-            "完全不发送该参数"
+            "gpt 类推理模型发 none，claude-* 发 low，deepseek-* 关闭思考，其余不发",
+            "发送 reasoning_effort=none（claude-* 折成 low；deepseek-* 关闭思考）",
+            "发送 reasoning_effort=low（deepseek-* 同时打开思考开关）",
+            "发送 reasoning_effort=medium（deepseek-* 同时打开思考开关）",
+            "发送 reasoning_effort=high（deepseek-* 同时打开思考开关）",
+            "完全不发送该参数 —— ⚠️ deepseek-* 上等于思考全开（服务端默认 high）"
           ],
-          "markdownDescription": "控制推理强度。翻译任务不需要思考，压到最低更快更省。Anthropic 最低一档是 `low`，没有 `none`，所以 `claude-*` 上的 `none` 会自动折成 `low`。若服务端因该参数返回 400，会自动去掉它重试。"
+          "markdownDescription": "控制推理强度。翻译任务不需要思考，压到最低更快更省。\n\n三家的关法不一样：\n- `claude-*` 最低一档是 `low`，没有 `none`，写 `none` 会自动折成 `low`\n- `deepseek-*` 的开关是 `thinking`，不是 `reasoning_effort`，而且**默认开着**——`auto` 会显式关掉它；选 `off` 反而是思考全开\n\n若服务端因该参数返回 400，会自动去掉它重试。"
         },
         "mdBilingual.useJsonResponseFormat": {
           "type": "boolean",
